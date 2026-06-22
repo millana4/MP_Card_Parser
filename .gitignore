@@ -1,0 +1,48 @@
+# --- Результаты работы парсера (не нужны в репозитории) ---
+output/*
+*.html
+*.png
+nuxt_raw_*.txt
+nuxt_decoded_*.txt
+debug_*
+
+# но саму папку output оставим в репозитории пустой (см. ниже про .gitkeep)
+!output/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Виртуальные окружения ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- IDE / редакторы ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- ОС ---
+.DS_Store
+Thumbs.db
+
+# --- Секреты / окружение (на будущее) ---
+.env
+*.env
+!_env
+
+# --- Docker ---
+# образы и тома не попадают в git сами, но на всякий случай:
+*.log
+
+# иллюстрации в static — нужны в репозитории, несмотря на правило *.png выше
+!static/
+!static/**

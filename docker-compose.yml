@@ -1,0 +1,15 @@
+services:
+  card-api:
+    build: .
+    ports:
+      # хост:контейнер — слева внешний порт (поменян на 8010, т.к. 8000 занят).
+      # Swagger будет на http://localhost:8010/docs
+      # Внутри контейнера сервис по-прежнему слушает 8000 — это менять не нужно.
+      - "8010:8000"
+    environment:
+      - CARD_HEADLESS=false
+      - CARD_OUTPUT_DIR=/app/output
+    volumes:
+      # сохранённые html и json появятся на хосте в ./output
+      - ./output:/app/output
+    restart: unless-stopped
