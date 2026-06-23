@@ -1,0 +1,62 @@
+# -*- coding: utf-8 -*-
+"""
+repository.py — репозиторий-источник данных Ozon.
+
+Паттерн Repository здесь абстрагирует ИСТОЧНИК сырья (сам сайт Ozon через
+Selenium), а не базу данных. Слои выше не знают, как именно добываются данные —
+они просто просят «дай сырьё по url/id». Маппинг в карточку тут НЕ делается
+(это ответственность mapper.py), репозиторий отдаёт сырые html + nuxt_state.
+"""
+
+import re
+
+from app.core.config import MarketplacePolicy
+from app.core.logging import get_logger
+from app.core.exceptions import InvalidRequestError
+from app.marketplaces.ozon.parser import OzonParser
+from app.marketplaces.ozon.nuxt import extract_nuxt_state
+
+logger = get_logger(__name__)
+
+
+class OzonRepository:
+    """Достаёт сырьё карточки Ozon по URL или артикулу."""
+
+    def __init__(self, policy: MarketplacePolicy):
+        self.policy = policy
+
+    @staticmethod
+    def url_from_sku(sku: str) -> str:
+        """Короткий URL карточки из артикула. Ozon редиректит на полный."""
+        sku = sku.strip()
+        if not sku.isdigit():
+            raise InvalidRequestError(
+                f"SKU должен быть числом, получено: {sku!r}", marketplace="ozon"
+            )
+        return f"https://www.ozon.ru/product/{sku}/"
+
+    @staticmethod
+    def sku_from_url(url: str) -> str | None:
+        m = re.search(r"-(\d+)/?(?:\?|$)", url)
+        return m.group(1) if m else None
+
+    def fetch_raw(self, url: str, region: str | None = None) -> dict:
+        """
+        Открыть карточку и вернуть сырьё:
+          {html, nuxt_state, screenshot_png}.
+        Парсер создаётся и закрывается на каждый вызов (Selenium не разделяется).
+        region (если задан) применяется парсером как город для цен/наличия.
+        """
+        url = url.strip()
+        if not url:
+            raise InvalidRequestError("Пустой URL", marketplace="ozon")
+
+        logger.debug("OzonRepository.fetch_raw: url=%s, region=%s", url, region)
+        parser = OzonParser(self.policy)
+        try:
+            html = parser.fetch_html(url, region=region)
+            nuxt = extract_nuxt_state(html)
+            png = parser.screenshot_png()
+            return {"html": html, "nuxt_state": nuxt, "screenshot_png": png, "url": url}
+        finally:
+            parser.close()

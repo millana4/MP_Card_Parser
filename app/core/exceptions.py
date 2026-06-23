@@ -1,0 +1,68 @@
+# -*- coding: utf-8 -*-
+"""
+exceptions.py — доменные исключения сервиса и их обработчики.
+
+Зачем отдельные типы: вызывающим сервисам (таск-менеджеру) важно различать
+ситуации, чтобы решать, что делать дальше:
+  - AntibotBlockedError   — заблокировал антибот → имеет смысл повторить позже;
+  - ProductNotFoundError  — товара/данных нет → пропустить;
+  - InvalidRequestError   — кривой URL/SKU → отклонить, не повторять;
+  - ParsingError          — прочая ошибка парсинга.
+
+Каждый тип маппится на свой HTTP-статус и единый формат тела ошибки.
+"""
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+
+class ParsingError(Exception):
+    """Базовая ошибка парсинга."""
+    http_status = 502
+    code = "parsing_error"
+
+    def __init__(self, message: str, marketplace: str | None = None):
+        super().__init__(message)
+        self.message = message
+        self.marketplace = marketplace
+
+
+class AntibotBlockedError(ParsingError):
+    """Антибот отдал капчу/блок. Имеет смысл повторить позже."""
+    http_status = 503
+    code = "antibot_blocked"
+
+
+class ProductNotFoundError(ParsingError):
+    """Данные товара не найдены на странице."""
+    http_status = 404
+    code = "product_not_found"
+
+
+class InvalidRequestError(ParsingError):
+    """Некорректный вход (URL/SKU). Повторять бессмысленно."""
+    http_status = 400
+    code = "invalid_request"
+
+
+def _error_body(exc: ParsingError) -> dict:
+    return {
+        "ok": False,
+        "error": {
+            "code": exc.code,
+            "message": exc.message,
+            "marketplace": exc.marketplace,
+        },
+    }
+
+
+async def parsing_error_handler(request: Request, exc: ParsingError) -> JSONResponse:
+    """Единый обработчик доменных ошибок парсинга."""
+    return JSONResponse(status_code=exc.http_status, content=_error_body(exc))
+
+
+def register_exception_handlers(app) -> None:
+    """Подключить обработчики ко всем подтипам ParsingError."""
+    for exc_type in (ParsingError, AntibotBlockedError,
+                     ProductNotFoundError, InvalidRequestError):
+        app.add_exception_handler(exc_type, parsing_error_handler)

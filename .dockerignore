@@ -1,5 +1,0 @@
-output/
-*.pyc
-__pycache__/
-.venv/
-.git/

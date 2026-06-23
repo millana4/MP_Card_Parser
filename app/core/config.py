@@ -1,0 +1,80 @@
+# -*- coding: utf-8 -*-
+"""
+config.py — единый источник настроек сервиса (из переменных окружения).
+
+Здесь же — политики таймаутов и ретраев. Сделано двухуровнево:
+  - общие значения по умолчанию (DEFAULT_*),
+  - переопределение для каждого маркетплейса (OZON_*, в будущем WB_*, YM_*).
+Так у каждого маркетплейса своя политика, как ты и просила.
+"""
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class MarketplacePolicy(BaseSettings):
+    """
+    Политика парсинга одного маркетплейса: таймауты, паузы, ретраи.
+    Заполняется из общих дефолтов и переопределяется env-переменными.
+    """
+    headless: bool = True
+    page_load_timeout: int = 30          # сек, set_page_load_timeout
+    wait_timeout: int = 15               # сек, ожидание появления данных на странице
+    pause_min: float = 2.0               # мин. пауза между действиями (антибот)
+    pause_max: float = 4.0               # макс. пауза между действиями
+    retries: int = 3                     # число попыток при блокировке/ошибке
+    retry_pause_min: float = 20.0        # пауза между попытками, мин
+    retry_pause_max: float = 40.0        # пауза между попытками, макс
+
+
+class Settings(BaseSettings):
+    """Глобальные настройки сервиса."""
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # Режим отладки. В DEBUG сохраняются html/json/png и доступны файловые эндпоинты.
+    debug: bool = Field(default=True, alias="DEBUG")
+
+    # Уровень логирования: DEBUG / INFO / WARNING / ERROR.
+    log_level: str = Field(default="DEBUG", alias="LOG_LEVEL")
+
+    # Куда складывать отладочные артефакты (только при debug=true).
+    debug_dir: str = Field(default="app/debug", alias="DEBUG_DIR")
+
+    # Версия API в префиксе путей.
+    api_prefix: str = Field(default="/api/v1", alias="API_PREFIX")
+
+    # Ключ для межсервисной авторизации. Сейчас не проверяется (заглушка).
+    service_api_key: str = Field(default="", alias="SERVICE_API_KEY")
+
+    # --- Kafka (журнал событий). Если брокер недоступен — сервис работает без журнала. ---
+    kafka_enabled: bool = Field(default=False, alias="KAFKA_ENABLED")
+    kafka_bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
+    kafka_topic: str = Field(default="parsing-events", alias="KAFKA_TOPIC")
+
+    # --- Политики маркетплейсов ---
+    # Ozon: можно переопределить через env OZON_HEADLESS, OZON_RETRIES и т.д.
+    ozon_headless: bool = Field(default=True, alias="OZON_HEADLESS")
+    ozon_page_load_timeout: int = Field(default=30, alias="OZON_PAGE_LOAD_TIMEOUT")
+    ozon_wait_timeout: int = Field(default=15, alias="OZON_WAIT_TIMEOUT")
+    ozon_pause_min: float = Field(default=2.0, alias="OZON_PAUSE_MIN")
+    ozon_pause_max: float = Field(default=4.0, alias="OZON_PAUSE_MAX")
+    ozon_retries: int = Field(default=3, alias="OZON_RETRIES")
+    ozon_retry_pause_min: float = Field(default=20.0, alias="OZON_RETRY_PAUSE_MIN")
+    ozon_retry_pause_max: float = Field(default=40.0, alias="OZON_RETRY_PAUSE_MAX")
+
+    def ozon_policy(self) -> MarketplacePolicy:
+        """Собрать политику Ozon из настроек."""
+        return MarketplacePolicy(
+            headless=self.ozon_headless,
+            page_load_timeout=self.ozon_page_load_timeout,
+            wait_timeout=self.ozon_wait_timeout,
+            pause_min=self.ozon_pause_min,
+            pause_max=self.ozon_pause_max,
+            retries=self.ozon_retries,
+            retry_pause_min=self.ozon_retry_pause_min,
+            retry_pause_max=self.ozon_retry_pause_max,
+        )
+
+
+# Единственный экземпляр настроек на весь сервис.
+settings = Settings()
