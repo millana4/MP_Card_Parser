@@ -18,9 +18,9 @@ import re
 import json
 import html as htmllib
 from app.core.logging import get_logger
-from datetime import datetime
+from datetime import datetime, timezone
 
-from app.marketplaces.ozon.models import OzonCard, OzonPrice, OzonSeller, OzonVariant
+from app.marketplaces.ozon.models import OzonCard, OzonPrice, OzonSeller, OzonVariant, OzonLocation
 
 logger = get_logger(__name__)
 
@@ -105,11 +105,10 @@ def _extract_variants(html: str) -> tuple[str | None, list[OzonVariant]]:
     return aspect_name, variants
 
 
-def _extract_quantity(html: str) -> str | None:
+def _extract_quantity(html: str) -> int | None:
     """
     Остаток товара. На странице распродажи лежит в виджете bigPromoPDP:
-      stockNumber.text = '50', stockText.text = 'единиц осталось'.
-    Возвращаем строку вида '50 единиц осталось' или None, если блока нет.
+      stockNumber.text = '50'. Возвращаем число 50 или None, если блока нет.
     """
     st = _widget_state(html, "bigPromoPDP")
     if not st:
@@ -135,7 +134,7 @@ def _extract_quantity(html: str) -> str | None:
     if number:
         import re as _re
         digits = _re.sub(r"\D", "", str(number))
-        return digits or None
+        return int(digits) if digits else None
     return None
 
 
@@ -160,12 +159,35 @@ def _extract_brand(html: str, nuxt: dict | None) -> str | None:
     return None
 
 
-def _clean_price(value: str | None) -> str | None:
-    """Оставить в цене только цифры: '1 999 ₽' -> '1999'. Валюта всегда рубли."""
-    if not value:
+def _clean_price(value: str | None) -> float | None:
+    """
+    Привести цену к числу в рублях: '1 999 ₽' -> 1999.0.
+    Убирает валюту и пробелы-разделители разрядов (в т.ч. неразрывные).
+    Если присутствует дробная часть (копейки) через ',' или '.', она сохраняется.
+    Возвращает None, если цифр в строке нет.
+    """
+    if value is None:
         return None
-    digits = re.sub(r"\D", "", value)
-    return digits or None
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    s = str(value)
+    # десятичный разделитель: последняя ',' или '.', за которой идут ровно 1-2 цифры
+    m = re.search(r"[.,](\d{1,2})\D*$", s)
+    decimals = ""
+    if m:
+        decimals = m.group(1)
+        s = s[:m.start()]
+
+    integer = re.sub(r"\D", "", s)
+    if not integer and not decimals:
+        return None
+
+    number = (integer or "0") + ("." + decimals if decimals else "")
+    try:
+        return float(number)
+    except ValueError:
+        return None
 
 
 def _extract_price(html: str) -> OzonPrice:
@@ -342,6 +364,41 @@ def _extract_sku_url(nuxt: dict | None, url: str | None) -> tuple[str | None, st
     return sku, (canonical or url)
 
 
+def _strip_query(url: str | None) -> str | None:
+    """Отрезать query-хвост после '?' (utm/at-метки): ...-123/?x=1 -> ...-123/."""
+    if not url:
+        return url
+    return url.split("?", 1)[0]
+
+
+def _extract_location(nuxt: dict | None) -> OzonLocation:
+    """
+    Регион выдачи из location.current сырого состояния.
+    Берём город, страну, код страны, areaId, fias, таймзону.
+    """
+    if not nuxt:
+        return OzonLocation()
+    loc = nuxt.get("location")
+    if not isinstance(loc, dict):
+        return OzonLocation()
+    cur = loc.get("current") if isinstance(loc.get("current"), dict) else loc
+
+    area_id = cur.get("areaId")
+    try:
+        area_id = int(area_id) if area_id is not None else None
+    except (TypeError, ValueError):
+        area_id = None
+
+    return OzonLocation(
+        city=cur.get("name") or cur.get("city"),
+        country=cur.get("country"),
+        country_code=cur.get("countryCode"),
+        area_id=area_id,
+        fias=cur.get("fias"),
+        timezone=cur.get("timeZoneUtcname"),
+    )
+
+
 # ----------------------------------------------------------------------------- #
 #  Главная сборка                                                               #
 # ----------------------------------------------------------------------------- #
@@ -354,6 +411,7 @@ def build_card(html: str, nuxt_state: dict | None, url: str | None = None) -> Oz
     url        — исходный URL (запасной источник sku).
     """
     sku, canonical = _extract_sku_url(nuxt_state, url)
+    canonical = _strip_query(canonical)
     rating, reviews = _extract_rating_reviews(html, nuxt_state)
     category, category_path = _extract_category(nuxt_state)
     variants_aspect, variants = _extract_variants(html)
@@ -361,7 +419,7 @@ def build_card(html: str, nuxt_state: dict | None, url: str | None = None) -> Oz
     card = OzonCard(
         sku=sku,
         url=canonical,
-        parsed_at=datetime.now().isoformat(timespec="seconds"),
+        parsed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         name=_extract_name(html, nuxt_state),
         brand=_extract_brand(html, nuxt_state),
         price=_extract_price(html),
@@ -375,5 +433,6 @@ def build_card(html: str, nuxt_state: dict | None, url: str | None = None) -> Oz
         variants_aspect=variants_aspect,
         variants=variants,
         seller=_extract_seller(html),
+        location=_extract_location(nuxt_state),
     )
     return card

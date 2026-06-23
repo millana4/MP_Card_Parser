@@ -19,11 +19,24 @@ class OzonSeller(BaseModel):
     ogrn: str | None = Field(None, description="ОГРН/ОГРНИП продавца")
 
 
+class OzonLocation(BaseModel):
+    """
+    Регион, в контексте которого Ozon отдал страницу (цены/наличие).
+    Берётся из location.current сырого состояния. Определяется по IP окружения.
+    """
+    city: str | None = Field(None, description="Город (name)")
+    country: str | None = Field(None, description="Страна")
+    country_code: str | None = Field(None, description="Код страны (например, RUS)")
+    area_id: int | None = Field(None, description="ID региона Ozon (areaId)")
+    fias: str | None = Field(None, description="ФИАС-идентификатор региона")
+    timezone: str | None = Field(None, description="Часовой пояс (например, UTC+3)")
+
+
 class OzonPrice(BaseModel):
-    """Цены товара (как показаны на странице, строками с валютой)."""
-    card_price: str | None = Field(None, description="Цена с Ozon Картой (со скидкой)")
-    price: str | None = Field(None, description="Текущая цена")
-    original_price: str | None = Field(None, description="Цена без скидки (зачёркнутая)")
+    """Цены товара в рублях, числом (без символа валюты и разделителей)."""
+    card_price: float | None = Field(None, description="Цена с Ozon Картой (со скидкой)")
+    price: float | None = Field(None, description="Текущая цена")
+    original_price: float | None = Field(None, description="Цена без скидки (зачёркнутая)")
 
 
 class OzonVariant(BaseModel):
@@ -31,7 +44,7 @@ class OzonVariant(BaseModel):
     sku: str | None = Field(None, description="Артикул этого варианта")
     value: str | None = Field(None, description="Значение варианта (например, '48 RU / L')")
     availability: str | None = Field(None, description="Доступность (inStock/outOfStock)")
-    price: str | None = Field(None, description="Цена варианта")
+    price: float | None = Field(None, description="Цена варианта (руб., число)")
 
 
 class OzonCard(BaseModel):
@@ -50,7 +63,7 @@ class OzonCard(BaseModel):
 
     # Цены
     price: OzonPrice = Field(default_factory=OzonPrice)
-    quantity: str | None = Field(None, description="Количество/остаток, если указано")
+    quantity: int | None = Field(None, description="Количество/остаток, если указано")
 
     # Оценки
     rating: str | None = Field(None, description="Рейтинг (например, '4.9')")
@@ -77,3 +90,6 @@ class OzonCard(BaseModel):
 
     # Продавец
     seller: OzonSeller = Field(default_factory=OzonSeller)
+
+    # Регион выдачи (город/страна, в контексте которых отданы цены и наличие)
+    location: OzonLocation = Field(default_factory=OzonLocation)

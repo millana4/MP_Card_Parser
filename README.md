@@ -49,16 +49,6 @@ Swagger: http://localhost:8010/docs
 Ниже — файлы (debug) и служебные:
 `GET /api/v1/files`, `GET /api/v1/files/{name}`, `GET /api/v1/health`, `GET /api/v1/health/ready`.
 
-## Локальный запуск
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python -m app.main          # или: uvicorn app.main:app --port 8000
-```
-
-Локально Chrome работает headless и его чаще ловит антибот — для реального
-парсинга используйте Docker (там Xvfb).
 
 ## Тесты
 

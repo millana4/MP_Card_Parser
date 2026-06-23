@@ -33,8 +33,8 @@ def get_service() -> OzonService:
 def card_by_id(req: ParseByIdRequest,
                _: dict = Depends(verify_api_key),
                service: OzonService = Depends(get_service)):
-    logger.info("POST /ozon/card/by-id sku=%s region=%s", req.sku, req.region)
-    result = service.get_card_by_id(req.sku, region=req.region)
+    logger.info("POST /ozon/card/by-id sku=%s", req.sku)
+    result = service.get_card_by_id(req.sku)
     return CardResponse(card=result["card"], debug_files=result["debug_files"])
 
 
@@ -43,8 +43,8 @@ def card_by_id(req: ParseByIdRequest,
 def card_by_url(req: ParseByUrlRequest,
                 _: dict = Depends(verify_api_key),
                 service: OzonService = Depends(get_service)):
-    logger.info("POST /ozon/card/by-url url=%s region=%s", req.url, req.region)
-    result = service.get_card(req.url, region=req.region)
+    logger.info("POST /ozon/card/by-url url=%s", req.url)
+    result = service.get_card(req.url)
     return CardResponse(card=result["card"], debug_files=result["debug_files"])
 
 
@@ -53,8 +53,8 @@ def card_by_url(req: ParseByUrlRequest,
 def raw_by_id(req: ParseByIdRequest,
               _: dict = Depends(verify_api_key),
               service: OzonService = Depends(get_service)):
-    logger.info("POST /ozon/raw/by-id sku=%s region=%s", req.sku, req.region)
-    result = service.get_raw_by_id(req.sku, region=req.region)
+    logger.info("POST /ozon/raw/by-id sku=%s", req.sku)
+    result = service.get_raw_by_id(req.sku)
     return RawResponse(sku=result["sku"], data=result["data"], debug_files=result["debug_files"])
 
 
@@ -63,6 +63,6 @@ def raw_by_id(req: ParseByIdRequest,
 def raw_by_url(req: ParseByUrlRequest,
                _: dict = Depends(verify_api_key),
                service: OzonService = Depends(get_service)):
-    logger.info("POST /ozon/raw/by-url url=%s region=%s", req.url, req.region)
-    result = service.get_raw(req.url, region=req.region)
+    logger.info("POST /ozon/raw/by-url url=%s", req.url)
+    result = service.get_raw(req.url)
     return RawResponse(sku=result["sku"], data=result["data"], debug_files=result["debug_files"])

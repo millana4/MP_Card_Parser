@@ -40,21 +40,20 @@ class OzonRepository:
         m = re.search(r"-(\d+)/?(?:\?|$)", url)
         return m.group(1) if m else None
 
-    def fetch_raw(self, url: str, region: str | None = None) -> dict:
+    def fetch_raw(self, url: str) -> dict:
         """
         Открыть карточку и вернуть сырьё:
           {html, nuxt_state, screenshot_png}.
         Парсер создаётся и закрывается на каждый вызов (Selenium не разделяется).
-        region (если задан) применяется парсером как город для цен/наличия.
         """
         url = url.strip()
         if not url:
             raise InvalidRequestError("Пустой URL", marketplace="ozon")
 
-        logger.debug("OzonRepository.fetch_raw: url=%s, region=%s", url, region)
+        logger.debug("OzonRepository.fetch_raw: url=%s", url)
         parser = OzonParser(self.policy)
         try:
-            html = parser.fetch_html(url, region=region)
+            html = parser.fetch_html(url)
             nuxt = extract_nuxt_state(html)
             png = parser.screenshot_png()
             return {"html": html, "nuxt_state": nuxt, "screenshot_png": png, "url": url}

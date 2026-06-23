@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 
 from app.core.config import settings, MarketplacePolicy
+from app.core.exceptions import AntibotBlockedError
 from app.core.logging import get_logger
 from app.marketplaces.ozon.repository import OzonRepository
 from app.marketplaces.ozon.mapper import build_card
@@ -69,36 +70,59 @@ class OzonService:
         return files
 
     # ------------------------------------------------------------------ #
-    def get_card(self, url: str, region: str | None = None) -> dict:
+    def get_card(self, url: str) -> dict:
         """Полный разбор: вернуть структурированную карточку + debug-файлы."""
         t0 = time.monotonic()
-        logger.info("get_card: старт, url=%s, region=%s", url, region)
-        raw = self.repo.fetch_raw(url, region=region)
+        logger.info("get_card: старт, url=%s", url)
+        try:
+            raw = self.repo.fetch_raw(url)
+        except AntibotBlockedError as exc:
+            self._emit_blocked(url, exc)
+            raise
         card = build_card(raw["html"], raw["nuxt_state"], raw["url"])
         card_dict = card.model_dump()
         files = self._save_debug(self._basename(raw["url"]), raw, card_dict)
         took = round(time.monotonic() - t0, 2)
         emit_event("ozon.card.parsed",
-                   {"url": raw["url"], "sku": card.sku, "region": region, "took_s": took})
+                   {"url": raw["url"], "sku": card.sku, "took_s": took})
         logger.info("get_card: готово за %sс, sku=%s", took, card.sku)
         return {"card": card_dict, "debug_files": files or None}
 
-    def get_raw(self, url: str, region: str | None = None) -> dict:
+    def get_raw(self, url: str) -> dict:
         """Только сырьё: вернуть __NUXT__ JSON + debug-файлы."""
         t0 = time.monotonic()
-        logger.info("get_raw: старт, url=%s, region=%s", url, region)
-        raw = self.repo.fetch_raw(url, region=region)
+        logger.info("get_raw: старт, url=%s", url)
+        try:
+            raw = self.repo.fetch_raw(url)
+        except AntibotBlockedError as exc:
+            self._emit_blocked(url, exc)
+            raise
         sku = OzonRepository.sku_from_url(raw["url"])
         files = self._save_debug(self._basename(raw["url"]), raw, None)
         took = round(time.monotonic() - t0, 2)
         emit_event("ozon.raw.parsed",
-                   {"url": raw["url"], "sku": sku, "region": region, "took_s": took})
+                   {"url": raw["url"], "sku": sku, "took_s": took})
         logger.info("get_raw: готово за %sс, sku=%s", took, sku)
         return {"sku": sku, "data": raw["nuxt_state"], "debug_files": files or None}
 
     # by-id обёртки
-    def get_card_by_id(self, sku: str, region: str | None = None) -> dict:
-        return self.get_card(OzonRepository.url_from_sku(sku), region=region)
+    def get_card_by_id(self, sku: str) -> dict:
+        return self.get_card(OzonRepository.url_from_sku(sku))
 
-    def get_raw_by_id(self, sku: str, region: str | None = None) -> dict:
-        return self.get_raw(OzonRepository.url_from_sku(sku), region=region)
+    def get_raw_by_id(self, sku: str) -> dict:
+        return self.get_raw(OzonRepository.url_from_sku(sku))
+
+    # ------------------------------------------------------------------ #
+    def _emit_blocked(self, url: str, exc: AntibotBlockedError) -> None:
+        """
+        Зафиксировать факт блокировки антиботом.
+
+        Сейчас событие уходит в Kafka через emit_event (при KAFKA_ENABLED=false
+        просто пишется в лог уровня WARNING и дальше не идёт — мягкая деградация).
+        Когда брокер подключат, эти же события начнут собираться для анализа
+        неслучайности пропусков (какие товары/когда чаще блокируются).
+        """
+        sku = OzonRepository.sku_from_url(url)
+        logger.warning("Антибот заблокировал парсинг: url=%s sku=%s", url, sku)
+        emit_event("ozon.blocked",
+                   {"url": url, "sku": sku, "reason": str(exc)})

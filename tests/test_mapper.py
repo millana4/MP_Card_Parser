@@ -34,13 +34,16 @@ def test_basic_fields():
 
 def test_prices():
     card = _load()
-    assert card.price.card_price
-    assert card.price.price
-    assert card.price.original_price
-    # Цены — только цифры, без ₽ и пробелов
-    assert card.price.card_price.isdigit()
-    assert card.price.price.isdigit()
-    assert card.price.original_price.isdigit()
+    # Цены присутствуют и являются числами (float), без ₽ и пробелов
+    assert isinstance(card.price.card_price, float)
+    assert isinstance(card.price.price, float)
+    assert isinstance(card.price.original_price, float)
+    # Положительные значения
+    assert card.price.card_price > 0
+    assert card.price.price > 0
+    assert card.price.original_price > 0
+    # Цена с картой не выше обычной, обычная не выше зачёркнутой
+    assert card.price.card_price <= card.price.price <= card.price.original_price
 
 
 def test_seller_with_ogrn():
@@ -57,9 +60,10 @@ def test_characteristics():
 
 def test_quantity():
     card = _load()
-    # У этого товара активна распродажа — остаток должен быть числом-строкой
+    # У этого товара активна распродажа — остаток должен быть целым числом
     assert card.quantity is not None
-    assert card.quantity.isdigit()
+    assert isinstance(card.quantity, int)
+    assert card.quantity > 0
 
 
 def test_variants():
@@ -67,6 +71,21 @@ def test_variants():
     assert card.variants_aspect == "Размер"
     assert len(card.variants) >= 1
     assert all(v.sku for v in card.variants)
+
+
+def test_url_has_no_query():
+    card = _load()
+    # URL карточки должен быть без query-хвоста после '?'
+    assert card.url is not None
+    assert "?" not in card.url
+
+
+def test_location():
+    card = _load()
+    # Регион выдачи должен извлечься из сырого состояния
+    assert card.location is not None
+    assert card.location.city
+    assert card.location.country
 
 
 if __name__ == "__main__":

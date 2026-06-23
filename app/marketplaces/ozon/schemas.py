@@ -17,12 +17,6 @@ class ParseByUrlRequest(BaseModel):
         description="URL карточки товара Ozon",
         examples=["https://www.ozon.ru/product/plate-zarina-3641521371/"],
     )
-    region: str | None = Field(
-        default=None,
-        description="Регион (город) для цен и наличия, например 'Москва'. "
-                    "Если не указан — берётся регион по умолчанию.",
-        examples=["Москва"],
-    )
 
 
 class ParseByIdRequest(BaseModel):
@@ -30,12 +24,6 @@ class ParseByIdRequest(BaseModel):
         ...,
         description="Артикул (SKU) товара Ozon — число из адреса карточки",
         examples=["3641521371"],
-    )
-    region: str | None = Field(
-        default=None,
-        description="Регион (город) для цен и наличия, например 'Москва'. "
-                    "Если не указан — берётся регион по умолчанию.",
-        examples=["Москва"],
     )
 
 

@@ -129,29 +129,12 @@ class OzonParser:
                 continue
         return False
 
-    # ------------------------------------------------------------------ #
-    def _apply_region(self, region: str | None):
-        """
-        Применить регион (город) для цен и наличия.
-
-        ШАГ 1 (сейчас): только логируем запрошенный регион. Ozon продолжает
-        отдавать регион по умолчанию (по IP окружения).
-        ШАГ 2 (позже): здесь будет реальное переключение города — через cookies
-        или эмуляцию выбора города на странице. Отлаживается на живом Ozon.
-        """
-        if region:
-            logger.info("Запрошен регион '%s' (применение региона будет на шаге 2, "
-                        "пока Ozon отдаёт регион по умолчанию)", region)
-        else:
-            logger.debug("Регион не задан — Ozon отдаёт регион по умолчанию")
-
-    def fetch_html(self, url: str, region: str | None = None) -> str:
+    def fetch_html(self, url: str) -> str:
         """
         Открыть карточку с ретраями и вернуть HTML.
-        region — желаемый город (см. _apply_region; на шаге 1 только логируется).
         Бросает AntibotBlockedError, если все попытки упёрлись в блок.
+        Регион определяется Ozon по IP окружения (переключение города не делаем).
         """
-        self._apply_region(region)
         self.driver.set_page_load_timeout(self.policy.page_load_timeout)
         last_blocked = False
 
