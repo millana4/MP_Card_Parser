@@ -1,22 +1,22 @@
-# -*- coding: utf-8 -*-
 """
-app.py — веб-сервис поверх card_parser.py (FastAPI + Swagger).
+app.py — веб-сервис Card Parser API (FastAPI + Swagger).
 
-Что даёт:
-  - POST /parse  — принимает URL карточки Ozon, парсит, возвращает JSON с данными
-                   товара. Дополнительно кладёт на диск полный HTML и JSON.
-  - GET  /files  — список сохранённых файлов в папке output.
-  - GET  /files/{name} — скачать конкретный файл (html или json).
-  - Swagger UI доступен на /docs (открывается в браузере).
+Эндпоинты делятся на две группы:
 
-Запуск локально:
-    uvicorn app:app --host 0.0.0.0 --port 8000
-    затем открыть http://localhost:8000/docs
+  СЫРЫЕ данные (полный JSON из __NUXT__):
+    POST /parse/ozon            — по URL
+    POST /parse/ozon/by-id      — по артикулу (SKU)
 
-В Docker — см. docker_card_parser_README.md (сервис card-api).
+  ОЧИЩЕННЫЕ данные (структурированная карточка):
+    POST /parse/ozon/card       — по URL
+    POST /parse/ozon/card/by-id — по артикулу (SKU)
 
-Переиспользует движок OzonCardParser из card_parser.py — никакой логики
-парсинга здесь не дублируется.
+Парсинг внутри общий: страница открывается один раз, на диск сохраняются
+html, сырой json и json карточки. Сырые эндпоинты отдают сырьё, card-эндпоинты —
+структурированную карточку.
+
+Файлы из output можно посмотреть через /files и скачать через /files/{name}.
+Swagger UI — на /docs.
 """
 
 import os
@@ -31,24 +31,24 @@ from card_parser import OzonCardParser, OUTPUT_DIR
 
 app = FastAPI(
     title="Card Parser API",
-    description="Парсинг карточек товаров маркетплейсов. Сейчас поддержан Ozon "
-                "(эндпоинт /parse/ozon): вводишь URL — получаешь сырые данные из "
-                "__NUXT__ в JSON. HTML и JSON дополнительно сохраняются на диск. "
-                "Другие маркетплейсы будут добавлены отдельными эндпоинтами.",
-    version="1.0.0",
+    description="Парсинг карточек товаров маркетплейсов. Сейчас поддержан Ozon. "
+                "Есть эндпоинты для сырых данных (__NUXT__) и для очищенной "
+                "структурированной карточки — по URL и по артикулу (SKU).",
+    version="2.0.0",
 )
 
-# Selenium не потокобезопасен, а сервис может получать запросы конкурентно.
-# Поэтому сериализуем доступ: один парсинг за раз. Для исследовательских целей
-# (ручные одиночные запросы через Swagger) этого достаточно.
+# Selenium не потокобезопасен — один парсинг за раз.
 _parse_lock = threading.Lock()
 
 
+# --------------------------------------------------------------------------- #
+#  Модели запроса/ответа                                                       #
+# --------------------------------------------------------------------------- #
 class ParseRequest(BaseModel):
     url: str = Field(
         ...,
         description="URL карточки товара Ozon",
-        examples=["https://www.ozon.ru/product/bryuki-dlya-malyshey-leratutti-3169084399/"],
+        examples=["https://www.ozon.ru/product/plate-zarina-3641521371/"],
     )
 
 
@@ -56,11 +56,12 @@ class ParseByIdRequest(BaseModel):
     sku: str = Field(
         ...,
         description="Артикул (SKU) товара Ozon — число из адреса карточки",
-        examples=["3169084399"],
+        examples=["3641521371"],
     )
 
 
-class ParseResponse(BaseModel):
+class RawResponse(BaseModel):
+    """Ответ сырых эндпоинтов: полный JSON из __NUXT__."""
     ok: bool
     tag: str | None = None
     json_file: str | None = None
@@ -69,87 +70,155 @@ class ParseResponse(BaseModel):
     error: str | None = None
 
 
-def _run_parse(url: str) -> ParseResponse:
-    """Общая логика: по готовому URL спарсить карточку и собрать ответ."""
+class CardResponse(BaseModel):
+    """Ответ card-эндпоинтов: структурированная карточка."""
+    ok: bool
+    tag: str | None = None
+    card_file: str | None = None
+    card: dict | None = None
+    error: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+#  Общая логика парсинга                                                       #
+# --------------------------------------------------------------------------- #
+def _parse(url: str) -> dict:
+    """
+    Открывает карточку один раз, сохраняет файлы (html, сырой json, card json)
+    и возвращает результат: {tag, json_path, html_path, card_path, data, card}.
+    """
     url = url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="Пустой URL/SKU")
 
-    # Один парсинг за раз (Selenium не потокобезопасен).
     with _parse_lock:
         parser = None
         try:
             parser = OzonCardParser()
-            result = parser.parse_card_full(url)
-            return ParseResponse(
-                ok=True,
-                tag=result["tag"],
-                json_file=os.path.basename(result["json_path"]),
-                html_file=os.path.basename(result["html_path"]),
-                data=result["data"],
-            )
-        except Exception as e:
-            logging.error(f"❌ Ошибка парсинга: {e}", exc_info=True)
-            return ParseResponse(ok=False, error=str(e))
+            return parser.parse_card_full(url)
         finally:
             if parser:
                 parser.close()
 
 
-@app.get("/", summary="Проверка, что сервис жив")
-def root():
-    return {"status": "ok", "swagger": "/docs"}
-
-
-@app.post("/parse/ozon", response_model=ParseResponse, tags=["Ozon"],
-          summary="Распарсить карточку Ozon по URL")
-def parse_ozon(req: ParseRequest):
-    """
-    Парсинг карточки **Ozon** по URL.
-
-    Принимает URL карточки, открывает её в браузере (Selenium + stealth),
-    достаёт встроенный объект __NUXT__ и возвращает данные товара в JSON.
-
-    Дополнительно сохраняет в папке output два файла с именами
-    `ozon_<sku>_<дата_время>`: .html (полная страница) и .json (данные товара).
-    Их можно скачать через GET /files/{name}.
-    """
-    return _run_parse(req.url)
-
-
-@app.post("/parse/ozon/by-id", response_model=ParseResponse, tags=["Ozon"],
-          summary="Распарсить карточку Ozon по артикулу (SKU)")
-def parse_ozon_by_id(req: ParseByIdRequest):
-    """
-    Парсинг карточки **Ozon** по артикулу (SKU).
-
-    Из артикула собирается короткий адрес `https://www.ozon.ru/product/<sku>/`,
-    Ozon сам перенаправляет на полную карточку. Дальше — то же, что и парсинг
-    по URL: данные из __NUXT__ + сохранение .html и .json в output.
-    """
-    sku = req.sku.strip()
+def _id_to_url(sku: str) -> str:
+    """Собирает короткий URL карточки из артикула. Ozon редиректит на полный."""
+    sku = sku.strip()
     if not sku.isdigit():
         raise HTTPException(
             status_code=400,
             detail=f"SKU должен быть числом (артикул из адреса карточки). Получено: {sku!r}",
         )
-    url = f"https://www.ozon.ru/product/{sku}/"
-    return _run_parse(url)
+    return f"https://www.ozon.ru/product/{sku}/"
 
 
+# --------------------------------------------------------------------------- #
+#  Служебные эндпоинты                                                         #
+# --------------------------------------------------------------------------- #
+@app.get("/", summary="Проверка, что сервис жив")
+def root():
+    return {"status": "ok", "swagger": "/docs"}
+
+
+# --------------------------------------------------------------------------- #
+#  СЫРЫЕ данные                                                                #
+# --------------------------------------------------------------------------- #
+@app.post("/parse/ozon", response_model=RawResponse, tags=["Ozon — сырые данные"],
+          summary="Сырой JSON по URL")
+def parse_ozon_raw(req: ParseRequest):
+    """Открывает карточку Ozon по URL и возвращает полный сырой JSON из __NUXT__.
+    Дополнительно сохраняет html и json в папку output."""
+    try:
+        r = _parse(req.url)
+        return RawResponse(
+            ok=True,
+            tag=r["tag"],
+            json_file=os.path.basename(r["json_path"]),
+            html_file=os.path.basename(r["html_path"]),
+            data=r["data"],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Ошибка парсинга: {e}", exc_info=True)
+        return RawResponse(ok=False, error=str(e))
+
+
+@app.post("/parse/ozon/by-id", response_model=RawResponse, tags=["Ozon — сырые данные"],
+          summary="Сырой JSON по артикулу (SKU)")
+def parse_ozon_raw_by_id(req: ParseByIdRequest):
+    """То же, что /parse/ozon, но карточка задаётся артикулом (SKU)."""
+    try:
+        r = _parse(_id_to_url(req.sku))
+        return RawResponse(
+            ok=True,
+            tag=r["tag"],
+            json_file=os.path.basename(r["json_path"]),
+            html_file=os.path.basename(r["html_path"]),
+            data=r["data"],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Ошибка парсинга: {e}", exc_info=True)
+        return RawResponse(ok=False, error=str(e))
+
+
+# --------------------------------------------------------------------------- #
+#  ОЧИЩЕННЫЕ данные (структурированная карточка)                               #
+# --------------------------------------------------------------------------- #
+@app.post("/parse/ozon/card", response_model=CardResponse, tags=["Ozon — карточка"],
+          summary="Очищенная карточка по URL")
+def parse_ozon_card(req: ParseRequest):
+    """Открывает карточку Ozon по URL и возвращает структурированные данные
+    (название, цены, характеристики, рейтинг, продавец с ОГРН и пр.).
+    Дополнительно сохраняет файл *_card.json в папку output."""
+    try:
+        r = _parse(req.url)
+        return CardResponse(
+            ok=True,
+            tag=r["tag"],
+            card_file=os.path.basename(r["card_path"]) if r.get("card_path") else None,
+            card=r.get("card"),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Ошибка парсинга: {e}", exc_info=True)
+        return CardResponse(ok=False, error=str(e))
+
+
+@app.post("/parse/ozon/card/by-id", response_model=CardResponse, tags=["Ozon — карточка"],
+          summary="Очищенная карточка по артикулу (SKU)")
+def parse_ozon_card_by_id(req: ParseByIdRequest):
+    """То же, что /parse/ozon/card, но карточка задаётся артикулом (SKU)."""
+    try:
+        r = _parse(_id_to_url(req.sku))
+        return CardResponse(
+            ok=True,
+            tag=r["tag"],
+            card_file=os.path.basename(r["card_path"]) if r.get("card_path") else None,
+            card=r.get("card"),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Ошибка парсинга: {e}", exc_info=True)
+        return CardResponse(ok=False, error=str(e))
+
+
+# --------------------------------------------------------------------------- #
+#  Файлы                                                                       #
+# --------------------------------------------------------------------------- #
 @app.get("/files", summary="Список сохранённых файлов")
 def list_files():
-    """Показать, какие файлы лежат в папке output (html, json, debug-скриншоты)."""
     if not os.path.isdir(OUTPUT_DIR):
         return {"files": []}
-    files = sorted(os.listdir(OUTPUT_DIR))
-    return {"dir": OUTPUT_DIR, "files": files}
+    return {"dir": OUTPUT_DIR, "files": sorted(os.listdir(OUTPUT_DIR))}
 
 
 @app.get("/files/{name}", summary="Скачать файл из output")
 def get_file(name: str):
-    """Скачать конкретный файл (html / json / png) по имени из папки output."""
-    # Защита от выхода из папки (path traversal).
     safe_name = os.path.basename(name)
     path = os.path.join(OUTPUT_DIR, safe_name)
     if not os.path.isfile(path):

@@ -425,12 +425,27 @@ class OzonCardParser:
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+        # Структурированная карточка: вытаскиваем нужные поля из HTML-виджетов и __NUXT__.
+        card = None
+        card_path = None
+        try:
+            from ozon_transform import build_card
+            card = build_card(html, data, url).model_dump()
+            card_path = os.path.join(OUTPUT_DIR, f"{base}_card.json")
+            with open(card_path, "w", encoding="utf-8") as f:
+                json.dump(card, f, ensure_ascii=False, indent=2)
+            logging.info(f"✅ Структурированная карточка сохранена: {card_path}")
+        except Exception as e:
+            logging.error(f"⚠️ Не удалось собрать карточку: {e}", exc_info=True)
+
         logging.info(f"✅ Сохранены: {json_path} и {html_path}")
         return {
             "tag": sku,
             "json_path": json_path,
             "html_path": html_path,
+            "card_path": card_path,
             "data": data,
+            "card": card,
         }
 
     # ------------------------------------------------------------------ #

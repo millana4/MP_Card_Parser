@@ -10,7 +10,7 @@
 ## Что внутри
 
 ```
-ozon_card_parser/
+marketplace_parsing/
 ├── card_parser.py        # движок: URL -> браузер(stealth) -> __NUXT__ -> данные
 ├── app.py                # FastAPI-сервис со Swagger поверх движка
 ├── requirements.txt      # selenium, selenium-stealth, webdriver-manager, fastapi, uvicorn
@@ -44,6 +44,7 @@ http://localhost:8010/docs
 
 Остановить: `Ctrl+C`, затем `docker compose down`.
 
+
 ## Где взять файлы
 
 Файлы сохраняются в папку `output/` — она примонтирована, поэтому видна прямо
@@ -62,6 +63,11 @@ http://localhost:8010/docs
 docker compose cp card-api:/app/output ./output_from_container
 ```
 
+Очистить папку с файлами:
+```commandline
+sudo rm -rf output/*
+```
+
 ## Эндпоинты
 
 | Метод | Путь                | Назначение                                   |
@@ -75,7 +81,7 @@ docker compose cp card-api:/app/output ./output_from_container
 
 Файлы в `output/` именуются `ozon_<sku>_<ГГГГММДД_ЧЧММСС>`
 
-## Локальный запуск без Docker (для разработки)
+## Локальный запуск без Docker - для разработки
 
 Понадобится установленный в системе Chrome/Chromium.
 

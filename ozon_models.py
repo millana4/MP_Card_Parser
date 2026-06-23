@@ -1,0 +1,78 @@
+"""
+ozon_models.py — структурированная модель карточки товара Ozon.
+
+Это «чистое» представление товара: только нужные для анализа поля, собранные
+из сырых данных страницы. Заполняется трансформером ozon_transform.py.
+"""
+
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class OzonSeller(BaseModel):
+    """Данные продавца."""
+    id: str | None = Field(None, description="ID продавца (sellerId)")
+    name: str | None = Field(None, description="Название магазина на Ozon")
+    legal_name: str | None = Field(None, description="Юр. название (ООО/АО/ИП ...)")
+    ogrn: str | None = Field(None, description="ОГРН/ОГРНИП продавца")
+
+
+class OzonPrice(BaseModel):
+    """Цены товара (как показаны на странице, строками с валютой)."""
+    card_price: str | None = Field(None, description="Цена с Ozon Картой (со скидкой)")
+    price: str | None = Field(None, description="Текущая цена")
+    original_price: str | None = Field(None, description="Цена без скидки (зачёркнутая)")
+
+
+class OzonVariant(BaseModel):
+    """Вариант товара (обычно размер) — отдельный sku со своей доступностью."""
+    sku: str | None = Field(None, description="Артикул этого варианта")
+    value: str | None = Field(None, description="Значение варианта (например, '48 RU / L')")
+    availability: str | None = Field(None, description="Доступность (inStock/outOfStock)")
+    price: str | None = Field(None, description="Цена варианта")
+
+
+class OzonCard(BaseModel):
+    """
+    Агрегированная карточка товара Ozon.
+
+    Поля, которые не удалось найти на странице, остаются None — это нормально,
+    набор виджетов у разных товаров отличается.
+    """
+    # Идентификация
+    sku: str | None = Field(None, description="Артикул товара")
+    url: str | None = Field(None, description="URL карточки")
+    parsed_at: str | None = Field(None, description="Дата и время парсинга (ISO)")
+    name: str | None = Field(None, description="Наименование товара")
+    brand: str | None = Field(None, description="Бренд")
+
+    # Цены
+    price: OzonPrice = Field(default_factory=OzonPrice)
+    quantity: str | None = Field(None, description="Количество/остаток, если указано")
+
+    # Оценки
+    rating: str | None = Field(None, description="Рейтинг (например, '4.9')")
+    reviews_count: str | None = Field(None, description="Число отзывов (например, '103')")
+
+    # Характеристики (плоский словарь: название -> значение).
+    # Сюда попадают сезон, материал, состав материала, коллекция, рост, размер и пр.
+    characteristics: dict[str, str] = Field(
+        default_factory=dict,
+        description="Краткие характеристики товара: {название: значение}",
+    )
+
+    # Описание и категория
+    description: str | None = Field(None, description="Текстовое описание товара")
+    category: str | None = Field(None, description="Категория")
+    category_path: str | None = Field(None, description="Путь категории (иерархия)")
+
+    # Варианты (размерная сетка): какой аспект и список вариантов с доступностью.
+    variants_aspect: str | None = Field(None, description="По чему варианты (напр. 'Размер')")
+    variants: list[OzonVariant] = Field(
+        default_factory=list,
+        description="Список вариантов (размеров) с доступностью, ценой и sku",
+    )
+
+    # Продавец
+    seller: OzonSeller = Field(default_factory=OzonSeller)
