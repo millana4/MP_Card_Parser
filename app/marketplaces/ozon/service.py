@@ -17,7 +17,7 @@ import time
 from datetime import datetime
 
 from app.core.config import settings, MarketplacePolicy
-from app.core.exceptions import AntibotBlockedError
+from app.core.exceptions import AntibotBlockedError, InvalidRequestError, ProductNotFoundError
 from app.core.logging import get_logger
 from app.marketplaces.ozon.repository import OzonRepository
 from app.marketplaces.ozon.mapper import build_card
@@ -126,3 +126,91 @@ class OzonService:
         logger.warning("Антибот заблокировал парсинг: url=%s sku=%s", url, sku)
         emit_event("ozon.blocked",
                    {"url": url, "sku": sku, "reason": str(exc)})
+
+    # ========================================================================== #
+    #  Category info                                                             #
+    # ========================================================================== #
+
+    def get_category_info(self, url: str) -> dict:
+        """Получить ID, название и количество товаров в категории."""
+        t0 = time.monotonic()
+        logger.info("get_category_info: старт, url=%s", url)
+
+        url = (url or "").strip()
+        if not url or "/category/" not in url:
+            raise InvalidRequestError(
+                f"Некорректный URL категории Ozon: {url!r}", marketplace="ozon"
+            )
+
+        try:
+            raw = self.repo.fetch_raw(url)
+        except AntibotBlockedError as exc:
+            self._emit_blocked(url, exc)
+            raise
+
+        data = raw["nuxt_state"]
+        result = self._extract_category_info(data)
+
+        if result["category_id"] is None and result["category_name"] is None:
+            raise ProductNotFoundError(
+                "Данные категории не найдены на странице.", marketplace="ozon"
+            )
+
+        took = round(time.monotonic() - t0, 2)
+        logger.info("get_category_info: готово за %sс, category_id=%s, offer_count=%s",
+                    took, result.get("category_id"), result.get("offer_count"))
+
+        return result
+
+    def _extract_category_info(self, data: dict) -> dict:
+        """Извлекает ID, название и offerCount из __NUXT__.state."""
+        result = {
+            "category_id": None,
+            "category_name": None,
+            "offer_count": None,
+        }
+
+        # 1. Данные категории из shared.catalog
+        shared = data.get("shared", {})
+        catalog = shared.get("catalog", {})
+        category = catalog.get("category", {})
+
+        if category.get("id") is not None:
+            try:
+                result["category_id"] = int(category["id"])
+            except (TypeError, ValueError):
+                logger.warning("category_id не является числом: %r", category.get("id"))
+                result["category_id"] = None
+        if category.get("name"):
+            result["category_name"] = category["name"]
+
+        # 2. offerCount из SEO-микроразметки
+        seo = data.get("seo", {})
+        scripts = seo.get("script", [])
+
+        for script in scripts:
+            if script.get("type") == "application/ld+json":
+                try:
+                    inner = json.loads(script.get("innerHTML", "{}"))
+                    if "offers" in inner and "offerCount" in inner["offers"]:
+                        result["offer_count"] = inner["offers"]["offerCount"]
+                        break
+                except Exception:
+                    continue
+
+        return result
+
+    @staticmethod
+    def category_url_from_id(category_id: str) -> str:
+        """URL категории из ID. Ozon редиректит на канонический адрес со slug."""
+        category_id = str(category_id).strip()
+        if not category_id.isdigit():
+            raise InvalidRequestError(
+                f"ID категории должен быть числом, получено: {category_id!r}",
+                marketplace="ozon",
+            )
+        return f"https://www.ozon.ru/category/{category_id}/"
+
+    def get_category_info_by_id(self, category_id: str) -> dict:
+        """Информация о категории по её ID (через построение URL)."""
+        return self.get_category_info(self.category_url_from_id(category_id))
