@@ -18,7 +18,7 @@ from app.core.logging import get_logger
 from app.marketplaces.ozon.service import OzonService
 from app.marketplaces.ozon.schemas import (
     ParseByUrlRequest, ParseByIdRequest, CardResponse, RawResponse,
-    CategoryInfoResponse, CategoryInfoByIdRequest,
+    CategoryInfoResponse, CategoryInfoByIdRequest, CategoryInfoByUrlRequest,
 )
 
 logger = get_logger(__name__)
@@ -74,7 +74,7 @@ def raw_by_id(req: ParseByIdRequest,
 
 @router.post("/category/by-url", response_model=CategoryInfoResponse,
              summary="Информация о категории по URL")
-def category_info(req: CategoryInfoByIdRequest,
+def category_info_by_url(req: CategoryInfoByUrlRequest,          # ← url
                   _: dict = Depends(verify_api_key),
                   service: OzonService = Depends(get_service)):
     logger.info("POST /ozon/category/by-url url=%s", req.url)
@@ -85,9 +85,10 @@ def category_info(req: CategoryInfoByIdRequest,
         offer_count=info["offer_count"],
     )
 
+
 @router.post("/category/by-id", response_model=CategoryInfoResponse,
              summary="Информация о категории по ID")
-def category_info_by_id(req: CategoryInfoByIdRequest,
+def category_info_by_id(req: CategoryInfoByIdRequest,   # ← category_id
                         _: dict = Depends(verify_api_key),
                         service: OzonService = Depends(get_service)):
     logger.info("POST /ozon/category/by-id category_id=%s", req.category_id)

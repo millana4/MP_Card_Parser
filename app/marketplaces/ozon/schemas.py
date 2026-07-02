@@ -53,7 +53,7 @@ class RawResponse(BaseModel):
 # ============================================================================ #
 
 
-class CategoryInfoByIdRequest(BaseModel):
+class CategoryInfoByUrlRequest(BaseModel):
     """Запрос на получение информации о категории."""
     url: str = Field(
         ...,
