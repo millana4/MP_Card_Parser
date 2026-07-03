@@ -21,6 +21,7 @@ from app.core.exceptions import AntibotBlockedError, InvalidRequestError, Produc
 from app.core.logging import get_logger
 from app.marketplaces.ozon.repository import OzonRepository
 from app.marketplaces.ozon.mapper import build_card
+from app.marketplaces.ozon.selection import select_cards
 from app.shared.kafka_logger import emit_event
 
 logger = get_logger(__name__)
@@ -214,3 +215,57 @@ class OzonService:
     def get_category_info_by_id(self, category_id: str) -> dict:
         """Информация о категории по её ID (через построение URL)."""
         return self.get_category_info(self.category_url_from_id(category_id))
+
+    def search_diagnostics(self, query: str, count: int) -> dict:
+        """Дагностика сбора сета: открыть первую страницу выдачи, извлечь кандидатов, отфильтровать."""
+        from app.marketplaces.ozon.search_listing import extract_candidates, prefilter
+        try:
+            raw = self.repo.fetch_search_raw(query=query)
+        except AntibotBlockedError as exc:
+            self._emit_blocked(query, exc)
+            raise
+        cands = extract_candidates(raw["html"])
+        pf = prefilter(cands, [], self.policy.min_rating, self.policy.min_reviews)
+        files = {}
+        if settings.debug:
+            import os
+            os.makedirs(settings.debug_dir, exist_ok=True)
+            p = os.path.join(settings.debug_dir,
+                             f"search_{datetime.now():%Y%m%d_%H%M%S}.html")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(raw["html"])
+            files["html"] = os.path.basename(p)
+        return {"query": query, "url": raw["url"], "target_tiles": count,
+                "extracted": len(cands), "after_prefilter": len(pf),
+                "next_page": raw["next_page"],
+                "candidates": [c.model_dump() for c in pf], "debug_files": files or None}
+
+    def select_for_stratum(self, req) -> dict:
+        """
+        Подбор карточек под страту. Оркестрация в selection.select_cards,
+        карточки берутся существующим get_card (тот же путь, что card/by-url).
+        """
+
+        logger.info("Подбор для страты: query=%r count=%s seasonal=%s base_share=%s исключений=%s",
+                    req.query, req.count, req.is_seasonal, req.base_share, len(req.exclude))
+
+        def fetch_page(url):
+            # первая страница — по query (url=None), следующие — по nextPage
+            return self.repo.fetch_search_raw(query=req.query if url is None else None, url=url)
+
+        def get_card_only(card_url):
+            # get_card возвращает dict {"card":..., "debug_files":...}; берём OzonCard
+            res = self.get_card(card_url)
+            # res["card"] — это dict; превратим обратно в OzonCard для единообразия ответа
+            from app.marketplaces.ozon.models import OzonCard
+            return OzonCard(**res["card"])
+
+        result = select_cards(
+            req,
+            fetch_page=fetch_page,
+            get_card=get_card_only,
+            min_rating=self.policy.min_rating,
+            min_reviews=self.policy.min_reviews,
+            max_pages=self.policy.max_pages,
+        )
+        return result

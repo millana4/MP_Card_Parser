@@ -9,6 +9,7 @@ schemas.py — схемы API для Ozon (вход/выход эндпоинт�
 from pydantic import BaseModel, Field
 
 from app.marketplaces.ozon.models import OzonCard
+from app.marketplaces.ozon.search_listing import Candidate
 
 
 class ParseByUrlRequest(BaseModel):
@@ -77,3 +78,29 @@ class CategoryInfoByIdRequest(BaseModel):
         description="ID категории Ozon",
         examples=["31307"],
     )
+
+
+class SearchDiagRequest(BaseModel):
+    """Схема для диагностики скроллинга поиска"""
+    query: str = Field(..., description="Поисковый запрос", examples=["Трусы женские"])
+    count: int = Field(4, ge=1, description="Нужное количество (для расчёта пула)")
+
+
+class SearchDiagResponse(BaseModel):
+    ok: bool = True
+    query: str
+    url: str | None = None
+    target_tiles: int
+    extracted: int = Field(..., description="Сколько кандидатов извлёк extract_candidates")
+    after_prefilter: int = Field(..., description="Сколько осталось после отсева по выдаче")
+    candidates: list[Candidate] = Field(default_factory=list)
+    debug_files: dict[str, str] | None = None
+
+
+class SelectionResponse(BaseModel):
+    """Ответ подбора карточек под страту."""
+    ok: bool = True
+    cards: list[OzonCard] = Field(default_factory=list,
+                                  description="Полные карточки подобранных товаров")
+    requested_count: int = Field(..., description="Сколько запрашивалось (count)")
+    found_count: int = Field(..., description="Сколько реально подобрано (может быть меньше)")

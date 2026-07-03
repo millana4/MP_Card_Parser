@@ -27,6 +27,9 @@ def setup_logging() -> None:
         handlers=[logging.StreamHandler(sys.stdout)],
         force=True,
     )
+    # Приглушить шумные сторонние логгеры: Selenium/urllib3
+    for noisy in ("selenium", "urllib3", "webdriver_manager", "hpack", "httpx"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     logging.getLogger(__name__).debug("Логирование настроено, уровень=%s", settings.log_level)
 
 

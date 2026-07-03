@@ -25,6 +25,12 @@ class MarketplacePolicy(BaseSettings):
     retries: int = 3                     # число попыток при блокировке/ошибке
     retry_pause_min: float = 20.0        # пауза между попытками, мин
     retry_pause_max: float = 40.0        # пауза между попытками, макс
+    # Пороги отбора карточек при подборе
+    min_rating: float = 4.8  # минимальный рейтинг кандидата
+    min_reviews: int = 100  # минимальное число отзывов (строго больше)
+    # Подбор: сбор пула кандидатов из выдачи
+    pool_multiplier: int = 3  # целевой пул плиток = count * этот множитель
+    max_pages: int = 10  # потолок прокруток выдачи
 
 
 class Settings(BaseSettings):
@@ -61,6 +67,10 @@ class Settings(BaseSettings):
     ozon_retries: int = Field(default=3, alias="OZON_RETRIES")
     ozon_retry_pause_min: float = Field(default=20.0, alias="OZON_RETRY_PAUSE_MIN")
     ozon_retry_pause_max: float = Field(default=40.0, alias="OZON_RETRY_PAUSE_MAX")
+    ozon_min_rating: float = Field(default=4.8, alias="OZON_MIN_RATING")
+    ozon_min_reviews: int = Field(default=100, alias="OZON_MIN_REVIEWS")
+    ozon_pool_multiplier: int = Field(default=3, alias="OZON_POOL_MULTIPLIER")
+    ozon_max_pages: int = Field(default=10, alias="OZON_MAX_PAGES")
 
     def ozon_policy(self) -> MarketplacePolicy:
         """Собрать политику Ozon из настроек."""
@@ -73,6 +83,10 @@ class Settings(BaseSettings):
             retries=self.ozon_retries,
             retry_pause_min=self.ozon_retry_pause_min,
             retry_pause_max=self.ozon_retry_pause_max,
+            min_rating=self.ozon_min_rating,
+            min_reviews=self.ozon_min_reviews,
+            pool_multiplier=self.ozon_pool_multiplier,
+            max_pages=self.ozon_max_pages,
         )
 
 

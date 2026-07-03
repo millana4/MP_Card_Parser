@@ -15,10 +15,12 @@ from fastapi import APIRouter, Depends
 
 from app.api.dependencies import verify_api_key
 from app.core.logging import get_logger
+from app.marketplaces.ozon.selection import StratumRequest
 from app.marketplaces.ozon.service import OzonService
 from app.marketplaces.ozon.schemas import (
     ParseByUrlRequest, ParseByIdRequest, CardResponse, RawResponse,
-    CategoryInfoResponse, CategoryInfoByIdRequest, CategoryInfoByUrlRequest,
+    CategoryInfoResponse, CategoryInfoByIdRequest, CategoryInfoByUrlRequest, SearchDiagRequest, SearchDiagResponse,
+    SelectionResponse,
 )
 
 logger = get_logger(__name__)
@@ -51,25 +53,26 @@ def card_by_id(req: ParseByIdRequest,
     return CardResponse(card=result["card"], debug_files=result["debug_files"])
 
 
-@router.post("/raw/by-url", response_model=RawResponse,
-             summary="Сырой JSON (__NUXT__) по URL")
-def raw_by_url(req: ParseByUrlRequest,
-               _: dict = Depends(verify_api_key),
-               service: OzonService = Depends(get_service)):
-    logger.info("POST /ozon/raw/by-url url=%s", req.url)
-    result = service.get_raw(req.url)
-    return RawResponse(sku=result["sku"], data=result["data"], debug_files=result["debug_files"])
-
-
-@router.post("/raw/by-id", response_model=RawResponse,
-             summary="Сырой JSON (__NUXT__) по артикулу")
-def raw_by_id(req: ParseByIdRequest,
-              _: dict = Depends(verify_api_key),
-              service: OzonService = Depends(get_service)):
-    logger.info("POST /ozon/raw/by-id sku=%s", req.sku)
-    result = service.get_raw_by_id(req.sku)
-    return RawResponse(sku=result["sku"], data=result["data"], debug_files=result["debug_files"])
-
+@router.post("/select", response_model=SelectionResponse,
+             summary="Подбор карточек под страту сета категории")
+def select(req: StratumRequest,
+           _: dict = Depends(verify_api_key),
+           service: OzonService = Depends(get_service)):
+    logger.info(
+        "POST /ozon/select ВХОД | query=%r count=%s seasonal=%s base_share=%s исключений=%s",
+        req.query, req.count, req.is_seasonal, req.base_share, len(req.exclude),
+    )
+    r = service.select_for_stratum(req)
+    picked_sku = [c.sku for c in r["cards"]]
+    logger.info(
+        "POST /ozon/select ВЫХОД | query=%r | запрошено=%s, подобрано=%s | sku=%s",
+        req.query, r["requested"], r["found"], picked_sku,
+    )
+    return SelectionResponse(
+        cards=r["cards"],
+        requested_count=r["requested"],
+        found_count=r["found"],
+    )
 
 
 @router.post("/category/by-url", response_model=CategoryInfoResponse,
@@ -97,4 +100,38 @@ def category_info_by_id(req: CategoryInfoByIdRequest,   # ← category_id
         category_id=info["category_id"],
         category_name=info["category_name"],
         offer_count=info["offer_count"],
+    )
+
+
+@router.post("/raw/by-url", response_model=RawResponse,
+             summary="Сырой JSON страницы (__NUXT__) по URL")
+def raw_by_url(req: ParseByUrlRequest,
+               _: dict = Depends(verify_api_key),
+               service: OzonService = Depends(get_service)):
+    logger.info("POST /ozon/raw/by-url url=%s", req.url)
+    result = service.get_raw(req.url)
+    return RawResponse(sku=result["sku"], data=result["data"], debug_files=result["debug_files"])
+
+
+@router.post("/raw/by-id", response_model=RawResponse,
+             summary="Сырой JSON карточки (__NUXT__) по артикулу")
+def raw_by_id(req: ParseByIdRequest,
+              _: dict = Depends(verify_api_key),
+              service: OzonService = Depends(get_service)):
+    logger.info("POST /ozon/raw/by-id sku=%s", req.sku)
+    result = service.get_raw_by_id(req.sku)
+    return RawResponse(sku=result["sku"], data=result["data"], debug_files=result["debug_files"])
+
+
+@router.post("/search/diagnostics", response_model=SearchDiagResponse,
+             summary="Диагностика поисковой выдачи")
+def search_diagnostics(req: SearchDiagRequest,
+                       _: dict = Depends(verify_api_key),
+                       service: OzonService = Depends(get_service)):
+    logger.info("POST /ozon/search/diagnostics query=%s count=%s", req.query, req.count)
+    r = service.search_diagnostics(req.query, req.count)
+    return SearchDiagResponse(
+        query=r["query"], url=r["url"], target_tiles=r["target_tiles"],
+        extracted=r["extracted"], after_prefilter=r["after_prefilter"],
+        candidates=r["candidates"], debug_files=r["debug_files"],
     )

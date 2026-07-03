@@ -15,6 +15,7 @@ from app.core.logging import get_logger
 from app.core.exceptions import InvalidRequestError
 from app.marketplaces.ozon.parser import OzonParser
 from app.marketplaces.ozon.nuxt import extract_nuxt_state
+from app.marketplaces.ozon.search_listing import extract_next_page
 
 logger = get_logger(__name__)
 
@@ -57,5 +58,37 @@ class OzonRepository:
             nuxt = extract_nuxt_state(html)
             png = parser.screenshot_png()
             return {"html": html, "nuxt_state": nuxt, "screenshot_png": png, "url": url}
+        finally:
+            parser.close()
+
+    @staticmethod
+    def search_url_from_query(query: str) -> str:
+        """URL страницы поиска Ozon по текстовому запросу."""
+        from urllib.parse import quote_plus
+        q = (query or "").strip()
+        if not q:
+            raise InvalidRequestError("Пустой поисковый запрос", marketplace="ozon")
+        return f"https://www.ozon.ru/search/?text={quote_plus(q)}"
+
+    def fetch_search_raw(self, query: str | None = None, url: str | None = None) -> dict:
+        """
+        Открыть ОДНУ страницу выдачи и вернуть сырьё:
+          {html, url, next_page, screenshot_png}.
+        Первая страница — по query (url=None); следующие — по готовому url (nextPage).
+        Парсер создаётся и закрывается на вызов.
+        """
+        page_url = url or self.search_url_from_query(query)
+        logger.debug("OzonRepository.fetch_search_raw: url=%s", page_url)
+        parser = OzonParser(self.policy)
+        try:
+            html = parser.fetch_listing_html(page_url)
+            png = parser.screenshot_png()
+            logger.info("Выдача получена: url=%s, есть_следующая=%s", page_url, bool(extract_next_page(html)))
+            return {
+                "html": html,
+                "url": page_url,
+                "next_page": extract_next_page(html),
+                "screenshot_png": png,
+            }
         finally:
             parser.close()
