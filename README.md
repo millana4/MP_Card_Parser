@@ -39,7 +39,7 @@ docker compose up --build
 ```
 Swagger: http://localhost:8010/docs
 
-Эндпоинты Ozon:
+## Эндпоинты Ozon
 1. `POST /api/v1/ozon/card/by-url` — очищенная карточка по URL
 2. `POST /api/v1/ozon/card/by-id` — очищенная карточка по артикулу
 3. `POST /api/v1/ozon/select` — подбор карточек под страту
@@ -56,7 +56,9 @@ Swagger: http://localhost:8010/docs
 - `GET /api/v1/health`
 - `GET /api/v1/health/ready`
 
-## Подбор карточек (`/ozon/select`)
+Машиночитаемый контракт API: `http://localhost:8010/openapi.json`
+
+## Подбор карточек Ozon
 На вход — параметры страты: 
 - `query` - поисковый запрос, 
 - `count` - требуемое количество карточек,
