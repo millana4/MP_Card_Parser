@@ -245,3 +245,27 @@ def extract_next_page(html: str) -> str | None:
                 nxt = "https://www.ozon.ru" + nxt
             return nxt
     return None
+
+
+def extract_pagination(nuxt_state: dict) -> tuple[int | None, int | None]:
+    """
+    Достать (currentPage, totalPages) из __NUXT__ выдачи.
+    Лежат в shared.catalog. totalPages — скользящая оценка: растёт по мере
+    листания, пока есть товары. Признак 'есть следующая' = currentPage < totalPages.
+    """
+    try:
+        catalog = nuxt_state.get("shared", {}).get("catalog", {})
+        current = catalog.get("currentPage")
+        total = catalog.get("totalPages")
+        return current, total
+    except (AttributeError, TypeError):
+        return None, None
+
+
+def build_next_page_url(current_url: str, current_page: int) -> str:
+    """Построить URL следующей страницы, заменив/добавив page=current_page+1."""
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    parsed = urlparse(current_url)
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    qs["page"] = [str(current_page + 1)]
+    return urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))

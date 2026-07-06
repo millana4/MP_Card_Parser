@@ -206,12 +206,9 @@ class OzonParser:
         logger.debug("OzonParser.close: ресурсы освобождены")
 
     def fetch_listing_html(self, url: str) -> str:
-        """
-        Открыть одну страницу выдачи и вернуть HTML (без скролла).
-        Бросает AntibotBlockedError при блокировке.
-        """
+        """Открыть одну страницу выдачи, вернуть HTML. Без скролла — пагинация
+        берётся из __NUXT__ (currentPage/totalPages), паджинатор в DOM не нужен."""
         self.driver.set_page_load_timeout(self.policy.page_load_timeout)
-
         for attempt in range(1, self.policy.retries + 1):
             logger.info("Открываю страницу выдачи (попытка %s/%s): %s",
                         attempt, self.policy.retries, url)
@@ -220,37 +217,17 @@ class OzonParser:
                 self.driver.get(url)
             except Exception as e:
                 logger.warning("Ошибка загрузки выдачи: %s", e)
-
             if self._is_blocked():
                 raise AntibotBlockedError("Выдача заблокирована антиботом.", marketplace="ozon")
-
-            # ждём появления плиток
             try:
                 self.wait.until(lambda d: "tileGridDesktop" in d.page_source)
             except Exception:
                 logger.warning("Плитки не появились на попытке %s", attempt)
-
             html = self.driver.page_source
-            has_tiles = "tileGridDesktop" in html
-            has_paginator = "infiniteVirtualPaginator" in html
-            logger.info("Страница выдачи загружена: плитки=%s, паджинатор=%s (попытка %s)",
-                        has_tiles, has_paginator, attempt)
-
-            if has_tiles:
-                # страница пришла с товарами — успех
+            if "tileGridDesktop" in html:
                 return html
-
-            # ни плиток, ни паджинатора → неполная загрузка, повторяем
-            if not has_paginator:
-                logger.warning("Страница выдачи неполная (нет плиток и паджинатора) — повтор")
-                if attempt < self.policy.retries:
-                    time.sleep(random.uniform(self.policy.retry_pause_min,
-                                              self.policy.retry_pause_max))
-                    continue
-
-            # плиток нет, но что-то есть — возвращаем как есть (пустая выдача)
-            logger.info("Плиток нет — возможно пустая выдача")
-            return html
-
-        logger.warning("Все попытки загрузить страницу выдачи исчерпаны")
+            if attempt < self.policy.retries:
+                time.sleep(random.uniform(self.policy.retry_pause_min,
+                                          self.policy.retry_pause_max))
+        logger.warning("Плитки не появились после всех попыток")
         return self.driver.page_source

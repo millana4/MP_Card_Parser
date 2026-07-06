@@ -329,17 +329,34 @@ def select_cards(
             logger.info("Набрано нужное количество — останавливаюсь на странице %s", page_no)
             break
 
+        # решаем, есть ли следующая страница
+        current_page = raw.get("current_page")
+        total_pages = raw.get("total_pages")
         nxt = raw.get("next_page")
-        logger.info("Страница %s: плиток на странице=%s, следующая=%s",
-                    page_no, len(cands), "есть" if nxt else "нет")
-        if not nxt:
-            if len(cands) == 0:
-                logger.warning("Страница %s пустая и без следующей — возможно сбой загрузки, "
-                               "а не конец выдачи", page_no)
-            logger.info("Следующей страницы нет (выдача исчерпана) на странице %s", page_no)
+
+        has_next_by_nuxt = (current_page is not None and total_pages is not None
+                            and current_page < total_pages)
+        logger.info("Страница %s: плиток=%s | currentPage=%s totalPages=%s | "
+                    "nextPage=%s, есть_следующая(nuxt)=%s",
+                    page_no, len(cands), current_page, total_pages,
+                    "есть" if nxt else "нет", has_next_by_nuxt)
+
+        if _slots_full(req, need, got_base, got_season):
+            logger.info("Набрано нужное количество — останавливаюсь на странице %s", page_no)
             break
-        logger.info("Не хватает (набрано %s/%s) — беру следующую страницу", len(picked), need.total)
-        page_url = nxt
+
+        # гибрид: nextPage приоритетно (готовый URL с токенами), иначе строим page=N
+        if nxt:
+            page_url = nxt
+        elif has_next_by_nuxt:
+            from app.marketplaces.ozon.search_listing import build_next_page_url
+            page_url = build_next_page_url(raw["url"], current_page)
+            logger.info("nextPage нет — строю следующую страницу по page: %s", page_url)
+        else:
+            logger.info("Следующей страницы нет (currentPage>=totalPages) на странице %s", page_no)
+            break
+
+        logger.info("Не хватает (набрано %s/%s) — беру страницу %s", len(picked), need.total, page_no + 1)
     else:
         logger.info("Достигнут потолок страниц (%s)", max_pages)
 

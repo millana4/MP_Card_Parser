@@ -15,7 +15,7 @@ from app.core.logging import get_logger
 from app.core.exceptions import InvalidRequestError
 from app.marketplaces.ozon.parser import OzonParser
 from app.marketplaces.ozon.nuxt import extract_nuxt_state
-from app.marketplaces.ozon.search_listing import extract_next_page
+from app.marketplaces.ozon.search_listing import extract_next_page, extract_pagination
 
 logger = get_logger(__name__)
 
@@ -72,22 +72,31 @@ class OzonRepository:
 
     def fetch_search_raw(self, query: str | None = None, url: str | None = None) -> dict:
         """
-        Открыть ОДНУ страницу выдачи и вернуть сырьё:
-          {html, url, next_page, screenshot_png}.
-        Первая страница — по query (url=None); следующие — по готовому url (nextPage).
-        Парсер создаётся и закрывается на вызов.
+        Открыть ОДНУ страницу выдачи. Вернуть:
+          {html, url, next_page, current_page, total_pages, screenshot_png}.
+        next_page — из HTML-паджинатора (может быть None).
+        current_page/total_pages — из __NUXT__ (надёжны, есть всегда).
         """
         page_url = url or self.search_url_from_query(query)
         logger.debug("OzonRepository.fetch_search_raw: url=%s", page_url)
         parser = OzonParser(self.policy)
         try:
             html = parser.fetch_listing_html(page_url)
+            nuxt = {}
+            try:
+                nuxt = extract_nuxt_state(html) or {}
+            except Exception as e:
+                logger.warning("Не удалось разобрать __NUXT__ выдачи: %s", e)
+            current_page, total_pages = extract_pagination(nuxt)
             png = parser.screenshot_png()
-            logger.info("Выдача получена: url=%s, есть_следующая=%s", page_url, bool(extract_next_page(html)))
+            logger.info("Выдача получена: url=%s, currentPage=%s, totalPages=%s, nextPage=%s",
+                        page_url, current_page, total_pages, bool(extract_next_page(html)))
             return {
                 "html": html,
                 "url": page_url,
                 "next_page": extract_next_page(html),
+                "current_page": current_page,
+                "total_pages": total_pages,
                 "screenshot_png": png,
             }
         finally:
