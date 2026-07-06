@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 ozon.py — маршруты Ozon.
-
-Порядок эндпоинтов (как в Swagger):
-  1. POST /ozon/card/by-url
-  2. POST /ozon/card/by-id
-  3. POST /ozon/raw/by-url
-  4. POST /ozon/raw/by-id
-  5. POST /ozon/category/by-url
-  6. POST /ozon/category/by-id
+  1. POST /ozon/card/by-url        — очищенная карточка по URL
+  2. POST /ozon/card/by-id         — очищенная карточка по артикулу
+  3. POST /ozon/select             — подбор карточек под страту
+  4. POST /ozon/category/by-url    — информация о категории по URL
+  5. POST /ozon/category/by-id     — информация о категории по ID
+  6. POST /ozon/raw/by-url         — сырой __NUXT__ по URL
+  7. POST /ozon/raw/by-id          — сырой __NUXT__ по артикулу
+  8. POST /ozon/search/diagnostics — диагностика поисковой выдачи (служебный)
 """
 
 from fastapi import APIRouter, Depends
