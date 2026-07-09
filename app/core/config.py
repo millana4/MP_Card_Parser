@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     ozon_min_reviews: int = Field(default=100, alias="OZON_MIN_REVIEWS")
     ozon_pool_multiplier: int = Field(default=3, alias="OZON_POOL_MULTIPLIER")
     ozon_max_pages: int = Field(default=10, alias="OZON_MAX_PAGES")
+    service_api_key: str = Field(default="", alias="SERVICE_API_KEY")
 
     def ozon_policy(self) -> MarketplacePolicy:
         """Собрать политику Ozon из настроек."""

@@ -2,21 +2,31 @@
 """
 security.py — работа с токеном межсервисной авторизации.
 
-Сейчас декодирование — заглушка: возвращает фиктивный «контекст вызывающего».
-В проде здесь будет реальная проверка/декодирование JWT или сверка ключа.
+Сверяет Bearer-токен из заголовка Authorization с ключом из настроек.
 """
 
 from app.core.logging import get_logger
+from app.core.config import settings
 
 logger = get_logger(__name__)
 
 
 def decode_token(token: str | None) -> dict:
     """
-    Декодировать токен вызывающего сервиса.
+    Проверить токен вызывающего сервиса.
 
-    ЗАГЛУШКА: ничего не проверяет, возвращает условный контекст.
-    В проде заменить на реальную валидацию.
+    Ожидается заголовок вида 'Bearer <ключ>'. Возвращает контекст вызывающего;
+    поле authenticated=True только при совпадении ключа. Само решение
+    пропускать/отклонять принимает verify_api_key в dependencies.py.
     """
-    logger.debug("decode_token: получен токен длиной %s", len(token) if token else 0)
+    if not token:
+        logger.debug("decode_token: токен отсутствует")
+        return {"service": "unknown", "authenticated": False}
+
+    # ожидаем "Bearer <ключ>"
+    expected = f"Bearer {settings.service_api_key}"
+    if settings.service_api_key and token == expected:
+        return {"service": "task-manager", "authenticated": True}
+
+    logger.debug("decode_token: токен не совпал с ключом")
     return {"service": "unknown", "authenticated": False}
