@@ -1,0 +1,141 @@
+# -*- coding: utf-8 -*-
+"""
+consumer.py — цикл потребления задач.
+Читает задачи своего региона по одной, маршрутизирует по имени топика,
+отправляет результат и ТОЛЬКО ПОСЛЕ этого коммитит смещение.
+Подключение к брокеру отказоустойчивое: ждёт брокер и переживает его падения.
+"""
+
+import json
+import time
+import signal
+from kafka import KafkaConsumer, TopicPartition, OffsetAndMetadata
+from kafka.errors import NoBrokersAvailable, KafkaError
+
+from app.core.logging import get_logger
+from app.marketplaces.ozon.service import OzonService
+from app.worker.kafka_config import kafka_worker_settings as kws
+from app.worker.result_producer import ResultProducer
+from app.worker.handlers import handle_select, handle_parse
+
+logger = get_logger(__name__)
+
+
+class TaskConsumer:
+    def __init__(self):
+        # сервис и продюсер создаём сразу; продюсер сам ждёт брокер (см. ResultProducer)
+        self.service = OzonService()
+        self.producer = ResultProducer()
+        self.consumer = None            # подключим в run(), с повторами
+        self._running = True
+
+    def stop(self, *_):
+        logger.info("Сигнал остановки — завершаю после текущей задачи")
+        self._running = False
+
+    def _connect_consumer(self) -> KafkaConsumer:
+        """Подключить консьюмер, повторяя попытки, пока брокер не станет доступен."""
+        attempt = 0
+        while self._running:
+            attempt += 1
+            try:
+                consumer = KafkaConsumer(
+                    *kws.task_topics,
+                    bootstrap_servers=kws.bootstrap_servers,
+                    group_id=kws.group_id,
+                    value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+                    enable_auto_commit=False,
+                    max_poll_records=1,
+                    auto_offset_reset="earliest",
+                )
+                logger.info("TaskConsumer подписан на %s | group=%s | brokers=%s (попытка %s)",
+                            kws.task_topics, kws.group_id, kws.bootstrap_servers, attempt)
+                return consumer
+            except NoBrokersAvailable:
+                logger.warning("Брокер недоступен (%s), жду... попытка %s",
+                               kws.bootstrap_servers, attempt)
+                time.sleep(kws.reconnect_delay_s)
+            except Exception as e:
+                logger.warning("Не удалось подключить консьюмер: %s — жду, попытка %s",
+                               e, attempt)
+                time.sleep(kws.reconnect_delay_s)
+        return None  # остановили до подключения
+
+    def run(self):
+        signal.signal(signal.SIGINT, self.stop)
+        signal.signal(signal.SIGTERM, self.stop)
+        logger.info("Воркер запущен, регион=%s (%s)", kws.geo_code, kws.geo_name)
+
+        # внешний цикл: при падении брокера переподключаемся и продолжаем
+        while self._running:
+            if self.consumer is None:
+                self.consumer = self._connect_consumer()
+                if self.consumer is None:
+                    break  # остановили во время ожидания брокера
+            try:
+                self._consume_loop()
+            except (NoBrokersAvailable, KafkaError) as e:
+                # брокер отвалился в процессе — закрываем и переподключаемся
+                logger.warning("Потеряна связь с брокером: %s — переподключаюсь", e)
+                self._close_consumer()
+                self.consumer = None
+                time.sleep(kws.reconnect_delay_s)
+            except Exception as e:
+                logger.exception("Непредвиденная ошибка в цикле потребления: %s", e)
+                self._close_consumer()
+                self.consumer = None
+                time.sleep(kws.reconnect_delay_s)
+
+        self._shutdown()
+
+    def _consume_loop(self):
+        """Внутренний цикл: пока связь есть и нас не остановили."""
+        while self._running:
+            batch = self.consumer.poll(timeout_ms=kws.poll_timeout_ms)
+            if not batch:
+                continue
+            for tp, messages in batch.items():
+                for message in messages:
+                    if not self._running:
+                        return
+                    self._process_one(tp.topic, message)
+
+    def _process_one(self, topic: str, message) -> None:
+        task = message.value
+        logger.info("Получена задача из %s (offset=%s)", topic, message.offset)
+
+        if topic == kws.select_tasks_topic:
+            result = handle_select(task, self.service)
+            result_topic = kws.select_results_topic
+        elif topic == kws.parse_tasks_topic:
+            result = handle_parse(task, self.service)
+            result_topic = kws.parse_results_topic
+        else:
+            logger.warning("Задача из неожиданного топика %s — пропускаю", topic)
+            self._commit(message)
+            return
+
+        try:
+            self.producer.send(result_topic, result)
+        except Exception:
+            logger.error("Результат не отправлен — смещение НЕ коммичу, задача перечитается")
+            return
+
+        self._commit(message)
+
+    def _commit(self, message) -> None:
+        tp = TopicPartition(message.topic, message.partition)
+        self.consumer.commit({tp: OffsetAndMetadata(message.offset + 1, None)})
+
+    def _close_consumer(self):
+        if self.consumer is not None:
+            try:
+                self.consumer.close()
+            except Exception as e:
+                logger.warning("Ошибка при закрытии консьюмера: %s", e)
+
+    def _shutdown(self):
+        logger.info("Останавливаю воркер...")
+        self._close_consumer()
+        self.producer.close()
+        logger.info("Воркер остановлен")

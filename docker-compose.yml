@@ -6,6 +6,15 @@ services:
     env_file:
       - .env
     volumes:
-      # debug-артефакты видны на хосте (только при DEBUG=true)
+      - ./app/debug:/app/app/debug
+    restart: unless-stopped
+
+  worker:
+    build: .
+    entrypoint: ["/entrypoint.sh"]
+    command: ["python", "-m", "app.worker.run_worker"]
+    env_file:
+      - .env
+    volumes:
       - ./app/debug:/app/app/debug
     restart: unless-stopped
