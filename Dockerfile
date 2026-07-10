@@ -23,4 +23,5 @@ RUN mkdir -p /app/app/debug && chmod +x /app/entrypoint.sh
 ENV DISPLAY=:99
 EXPOSE 8000
 
-CMD ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]

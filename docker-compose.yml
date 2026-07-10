@@ -15,7 +15,6 @@ services:
 
   worker:
     build: .
-    entrypoint: [ "/app/entrypoint.sh" ]
     command: ["python", "-m", "app.worker.run_worker"]
     env_file:
       - .env
