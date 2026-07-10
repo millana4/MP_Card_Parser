@@ -47,6 +47,9 @@ class TaskConsumer:
                     enable_auto_commit=False,
                     max_poll_records=1,
                     auto_offset_reset="earliest",
+                    max_poll_interval_ms=1800000,
+                    session_timeout_ms=60000,
+                    heartbeat_interval_ms=20000,
                 )
                 logger.info("TaskConsumer подписан на %s | group=%s | brokers=%s (попытка %s)",
                             kws.task_topics, kws.group_id, kws.bootstrap_servers, attempt)
@@ -125,7 +128,7 @@ class TaskConsumer:
 
     def _commit(self, message) -> None:
         tp = TopicPartition(message.topic, message.partition)
-        self.consumer.commit({tp: OffsetAndMetadata(message.offset + 1, None)})
+        self.consumer.commit({tp: OffsetAndMetadata(message.offset + 1, None, -1)})
 
     def _close_consumer(self):
         if self.consumer is not None:
