@@ -1,6 +1,7 @@
 services:
   parsing-service:
     build: .
+    init: true
     ports:
       - "8010:8000"
     env_file:
@@ -15,6 +16,7 @@ services:
 
   worker:
     build: .
+    init: true
     command: ["python", "-m", "app.worker.run_worker"]
     env_file:
       - .env
